@@ -611,8 +611,8 @@ $('#dmCsv').onclick=()=>{
 /* ======================= team sharing (Supabase) =======================
    Paste your Supabase Project URL and anon/publishable key below (Supabase → Project Settings → API).
    Leave them empty to keep the old "only in my browser" behaviour. */
-const SUPA_URL='';   /* e.g. 'https://abcdefgh.supabase.co' */
-const SUPA_KEY='';   /* the "anon public" or "publishable" key — never the service_role / secret key */
+const SUPA_URL='https://mcqoocpdqtcopugajpbp.supabase.co';   /* e.g. 'https://abcdefgh.supabase.co' */
+const SUPA_KEY='sb_publishable_kAAidEakyHIPBFeeUZyHxA_k82dW5io';   /* the "anon public" or "publishable" key — never the service_role / secret key */
 const BUCKET='b2b-pendency',TABLE='b2b_pendency_uploads';
 const PART_MAX=40*1024*1024; /* each chunk stays under Supabase's 50 MB file limit */
 const KEEP_UPLOADS=2;        /* latest upload + the one before it; older ones are deleted */
