@@ -137,6 +137,7 @@ tr.tot td.dn{color:#4C1D95}
 .dsum{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px;color:var(--mut)}
 .dsum b{color:var(--ink)}
 .mb .tw{max-height:62vh}
+.pill.busy{background:#FFFBEB;border-color:#FCD34D;color:#92400E}.pill.ok{background:#ECFDF5;border-color:#6EE7B7;color:#065F46}.pill.err{background:#FFF1F2;border-color:#FDA4AF;color:#9F1239}
 .mono{font-family:Consolas,'SF Mono',ui-monospace,monospace;font-size:11px}
 </style>
 </head>
@@ -145,7 +146,7 @@ tr.tot td.dn{color:#4C1D95}
 <div id="up">
   <div class="upc">
     <h1>B2B Pendency · <span>Upload today's file.</span></h1>
-    <p>Drop the daily <b>final_b2b_pendency</b> export (.csv, .xlsx or .xls). Columns used: Ageing, Current_Liablity, Client, lor_number, packet_id, origin_dc, Destination_dc, mode, Lr_status. Other columns are kept for the drill-through. The file is read only in your browser and never leaves this device.</p>
+    <p>Drop the daily <b>final_b2b_pendency</b> export (.csv, .xlsx or .xls). Columns used: Ageing, Current_Liablity, Client, lor_number, packet_id, origin_dc, Destination_dc, mode, Lr_status. Other columns are kept for the drill-through. <span id="upNote">The file is read only in your browser and never leaves this device.</span></p>
     <div class="drop" id="drop"><b>⬆ Drag &amp; drop the file here</b><div>or click to browse · CSV is fastest for large files (1–2 lakh rows load in a few seconds)</div></div>
     <input type="file" id="file" accept=".csv,.xlsx,.xls,.xlsm" hidden>
     <div class="upb"><button class="pri" id="browse">Browse file…</button></div>
@@ -162,6 +163,7 @@ tr.tot td.dn{color:#4C1D95}
     <div class="pills">
       <span class="pill" id="pAsof"></span>
       <span class="pill" id="pShow"></span>
+      <span class="pill" id="pShare" style="display:none"></span>
       <button class="newf" id="newFile">⬆ New file</button>
     </div>
   </div>
@@ -275,6 +277,7 @@ async function loadFile(f){
     if(!D.N)throw new Error('The file has a header but no data rows.');
     prog('Building dashboard…',100);await tick();
     startDash();
+    if(SHARE_ON)shareDataset();
   }catch(e){console.error(e);upErr('Could not load <b>'+esc(f.name)+'</b>: '+(e.message||e))}
 }
 
@@ -322,7 +325,7 @@ async function loadCsv(f){
   return b.done(f.name);
 }
 
-function loadScript(src){return new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>no(new Error('Could not load the Excel reader (needs internet once). Save the sheet as CSV and upload that instead.'));document.head.appendChild(s)})}
+function loadScript(src,msg){return new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>no(new Error(msg||'Could not load the Excel reader (needs internet once). Save the sheet as CSV and upload that instead.'));document.head.appendChild(s)})}
 async function loadXlsx(f){
   if(!window.XLSX){prog('Loading Excel reader…',3);await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js')}
   prog('Reading '+f.name+' (Excel is slower than CSV)…',10);await tick();
@@ -348,7 +351,7 @@ function startDash(){
   AGE_T=AGE.map((_,i)=>{const t=AGE.length>1?i/(AGE.length-1):1;const l=95-t*45;return {b:`hsl(262 80% ${l}%)`,f:l<70?'#fff':'#3B0764'}});
   Object.keys(F).forEach(k=>F[k]=k==='lr'?'':-1);
   TB.forEach(t=>{t.view='matrix';t.q='';t.open=new Set();t.sort=null;t.top=t.top0});
-  $('#srcLine').textContent='Source: '+D.file+' · '+fmt(D.N)+' rows · LR, lane, client, pipeline stage, mode and LR status';
+  $('#srcLine').textContent=(D.shared?'Team data · uploaded '+new Date(D.shared.at).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})+' · ':'')+'Source: '+D.file+' · '+fmt(D.N)+' rows · LR, lane, client, pipeline stage, mode and LR status';
   $('#pAsof').textContent='📅 Data as of '+(D.asof?new Date(D.asof).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—');
   buildFilters();shell();render();
   $('#up').style.display='none';$('#dash').style.display='block';scrollTo(0,0);
@@ -389,7 +392,13 @@ function specRows(spec){
   const ks=Object.keys(spec).map(k=>[C[k],Array.isArray(spec[k])?new Set(spec[k]):new Set([spec[k]])]);
   return ROWS.filter(r=>ks.every(([c,s])=>s.has(r[c])));
 }
-document.addEventListener('click',e=>{const el=e.target.closest('[data-d]');if(!el)return;const d=DR[+el.dataset.d];if(d)openDrill(d.title,specRows(d.spec),d.view)});
+document.addEventListener('click',async e=>{const el=e.target.closest('[data-d]');if(!el)return;const d=DR[+el.dataset.d];if(!d)return;
+  const rows=specRows(d.spec);
+  if(D.shared&&!D.shared.loaded){ /* team data: packet-level details are fetched only on the first drill */
+    $('#dmT').textContent=d.title;$('#dmB').innerHTML='<div class="empty">Loading packet details…</div>';$('#dm').classList.add('on');
+    try{await ensureDetails()}catch(err){console.error(err);$('#dmB').innerHTML='<div class="empty">Could not load packet details: '+esc(err.message||err)+'</div>';return}
+  }
+  openDrill(d.title,rows,d.view)});
 
 /* ---------- KPIs ---------- */
 function renderKpis(rows,tot){
@@ -592,11 +601,129 @@ $('#dmX').onclick=()=>$('#dm').classList.remove('on');
 $('#dm').onclick=e=>{if(e.target.id==='dm')$('#dm').classList.remove('on')};
 document.addEventListener('keydown',e=>{if(e.key==='Escape')$('#dm').classList.remove('on');if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('kpi'))e.target.click()});
 $('#dmCsv').onclick=()=>{
+  if(!D.cols)return;
   const idx=drillIdx();const name='drill_'+slug(DM.title)+'.csv';
   if(DM.view==='pk'){download(name,[D.keep,...idx.map(i=>D.keep.map(n=>D.cols[n][i]))])}
   else{download(name,[['lor_number','Client','Lane','Ageing','Lr_status','mode','Pipeline stage(s)','Lr_created_date','Count of packet_id'],
     ...lrSummary(idx).map(o=>[o.lr,o.client,o.lane,o.age,o.status,o.mode,[...o.stg.keys()].join(' | '),o.cr,o.n])])}
 };
+
+/* ======================= team sharing (Supabase) =======================
+   Paste your Supabase Project URL and anon/publishable key below (Supabase → Project Settings → API).
+   Leave them empty to keep the old "only in my browser" behaviour. */
+const SUPA_URL='';   /* e.g. 'https://abcdefgh.supabase.co' */
+const SUPA_KEY='';   /* the "anon public" or "publishable" key — never the service_role / secret key */
+const BUCKET='b2b-pendency',TABLE='b2b_pendency_uploads';
+const PART_MAX=40*1024*1024; /* each chunk stays under Supabase's 50 MB file limit */
+const KEEP_UPLOADS=2;        /* latest upload + the one before it; older ones are deleted */
+const SHARE_ON=!!(SUPA_URL&&SUPA_KEY);
+let SB=null;
+async function supa(){
+  if(SB)return SB;
+  if(!window.supabase)await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js','Could not load the Supabase library (check the internet connection).');
+  SB=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
+  return SB;
+}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function retry(f,n=4){for(let a=1;;a++){try{return await f()}catch(e){if(a>=n)throw e;await sleep(1000*a)}}}
+async function gz(obj){return await new Response(new Blob([JSON.stringify(obj)]).stream().pipeThrough(new CompressionStream('gzip'))).blob()}
+async function gunzip(blob){return JSON.parse(await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).text())}
+async function pool(n,items,fn){let i=0;await Promise.all(Array.from({length:Math.min(n,items.length)},async()=>{while(i<items.length){const k=i++;await fn(items[k],k)}}))}
+let SHARING=false;
+function share(state,msg){const p=$('#pShare');p.style.display='';p.className='pill '+state;p.textContent=msg}
+addEventListener('beforeunload',e=>{if(SHARING){e.preventDefault();e.returnValue=''}});
+
+/* split a range into chunks, halving any chunk whose compressed size is too big */
+async function pushParts(out,meta,build,s,e){
+  const blob=await gz(build(s,e));
+  if(blob.size>PART_MAX&&e-s>1000){const m=(s+e)>>1;await pushParts(out,meta,build,s,m);await pushParts(out,meta,build,m,e);return}
+  out.push({...meta,s,e,blob});await tick();
+}
+function dictEnc(arr,s,e){const m=new Map(),vals=[],codes=new Array(e-s);for(let i=s;i<e;i++){const v=arr[i];let c=m.get(v);if(c===undefined){c=vals.length;m.set(v,c);vals.push(v)}codes[i-s]=c}return {vals,codes}}
+
+/* upload the dataset that was just loaded, so everyone who opens the link sees it */
+async function shareDataset(){
+  const my=D,folder='u'+Date.now()+'_'+Math.random().toString(36).slice(2,7);let uploaded=[];
+  SHARING=true;
+  try{
+    share('busy','⏳ Preparing data for your team…');
+    const c=await supa();
+    const parts=[];
+    parts.push({kind:'meta',s:0,e:1,blob:await gz({v:1,dic:my.dic,keep:my.keep,N:my.N,asof:my.asof,file:my.file})});
+    await pushParts(parts,{kind:'groups'},(s,e)=>my.groups.slice(s,e).map(g=>g.slice(0,C.n+1)),0,my.groups.length);
+    const rg=new Int32Array(my.N);my.groups.forEach((g,gi)=>{for(const i of g[C.ix])rg[i]=gi});
+    await pushParts(parts,{kind:'rg'},(s,e)=>Array.from(rg.subarray(s,e)),0,my.N);
+    for(const n of my.keep){share('busy','⏳ Preparing data for your team · '+n);await pushParts(parts,{kind:'col',col:n},(s,e)=>dictEnc(my.cols[n],s,e),0,my.N)}
+    const total=parts.reduce((a,p)=>a+p.blob.size,0);let sent=0;
+    parts.forEach((p,i)=>p.path=folder+'/p'+String(i).padStart(4,'0')+'.bin');
+    share('busy','⏳ Sharing with team · 0%');
+    await pool(4,parts,async p=>{
+      await retry(async()=>{const {error}=await c.storage.from(BUCKET).upload(p.path,p.blob,{contentType:'application/octet-stream',upsert:true,cacheControl:'31536000'});if(error)throw error});
+      uploaded.push(p.path);sent+=p.blob.size;share('busy','⏳ Sharing with team · '+Math.round(sent/total*100)+'%  (please keep this tab open)');
+    });
+    const manifest=parts.map(({blob,...p})=>p);
+    const {error}=await c.from(TABLE).insert({folder,file_name:my.file,row_count:my.N,asof:my.asof?new Date(my.asof).toISOString():null,bytes:total,parts:manifest});
+    if(error)throw error;
+    uploaded=[];
+    share('ok','✔ Shared with team · '+(total/1048576).toFixed(1)+' MB');
+    cleanupOld(c).catch(e=>console.warn('cleanup',e));
+  }catch(e){
+    console.error(e);share('err','⚠ Not shared: '+(e.message||e));
+    if(uploaded.length){try{const c=await supa();for(let i=0;i<uploaded.length;i+=100)await c.storage.from(BUCKET).remove(uploaded.slice(i,i+100))}catch(_){}}
+  }finally{SHARING=false}
+}
+async function cleanupOld(c){
+  const {data,error}=await c.from(TABLE).select('id,parts').order('created_at',{ascending:false}).range(KEEP_UPLOADS,KEEP_UPLOADS+50);
+  if(error)throw error;
+  for(const o of data||[]){
+    const paths=(o.parts||[]).map(p=>p.path);
+    for(let i=0;i<paths.length;i+=100){const {error}=await c.storage.from(BUCKET).remove(paths.slice(i,i+100));if(error)throw error}
+    await c.from(TABLE).delete().eq('id',o.id);
+  }
+}
+async function fetchParts(list,cb){
+  const c=await supa();const out=new Array(list.length);let done=0;
+  await pool(4,list,async(p,k)=>{
+    out[k]=await retry(async()=>{const {data,error}=await c.storage.from(BUCKET).download(p.path);if(error)throw error;return gunzip(data)});
+    done++;cb&&cb(done,list.length);
+  });
+  return out;
+}
+/* on page open: load the summary of the latest shared upload (packet details come later, on first drill) */
+async function loadShared(){
+  const c=await supa();
+  const {data,error}=await c.from(TABLE).select('id,created_at,parts').order('created_at',{ascending:false}).limit(1);
+  if(error)throw error;
+  if(!data||!data.length)return null;
+  const u=data[0],core=u.parts.filter(p=>p.kind==='meta'||p.kind==='groups');
+  const got=await fetchParts(core,(d,t)=>prog('Loading the latest team data · '+d+' of '+t,5+d/t*90));
+  let meta;const gp=[];
+  core.forEach((p,k)=>{if(p.kind==='meta')meta=got[k];else gp.push([p.s,got[k]])});
+  const groups=[];gp.sort((a,b)=>a[0]-b[0]).forEach(([,arr])=>arr.forEach(g=>{g.push([]);groups.push(g)}));
+  return {dic:meta.dic,keep:meta.keep,N:meta.N,asof:meta.asof,file:meta.file,groups,cols:null,shared:{at:u.created_at,parts:u.parts,loaded:false}};
+}
+let detailsP=null;
+function ensureDetails(){if(!detailsP)detailsP=loadDetails().catch(e=>{detailsP=null;throw e});return detailsP}
+async function loadDetails(){
+  const my=D,P=my.shared.parts.filter(p=>p.kind==='rg'||p.kind==='col');
+  const got=await fetchParts(P,(d,t)=>{if(!my.shared.loaded)$('#dmB').innerHTML=`<div class="empty">Loading packet details (first time only) · ${d} of ${t}…</div>`});
+  const cols={};my.keep.forEach(n=>cols[n]=new Array(my.N));const rg=new Int32Array(my.N);
+  P.forEach((p,k)=>{const o=got[k];if(p.kind==='rg'){for(let i=0;i<o.length;i++)rg[p.s+i]=o[i]}else{const a=cols[p.col],v=o.vals,cd=o.codes;for(let i=0;i<cd.length;i++)a[p.s+i]=v[cd[i]]}});
+  my.groups.forEach(g=>g[C.ix].length=0);
+  for(let i=0;i<my.N;i++)my.groups[rg[i]][C.ix].push(i);
+  my.cols=cols;my.shared.loaded=true;
+}
+if(SHARE_ON){
+  $('#upNote').innerHTML='After loading, the dashboard is <b>shared with your team</b>: everyone who opens this link sees the latest upload.';
+  (async()=>{
+    try{
+      prog('Loading the latest team data…',2);
+      const d=await loadShared();
+      if(!d){$('#prog').classList.remove('on');return}
+      D=d;startDash();share('ok','✔ Team data');
+    }catch(e){console.error(e);upErr('Could not load the shared team data: '+esc(e.message||e)+'<br>You can still upload a file below.')}
+  })();
+}
 
 function render(){
   DR=[];ROWS=filtered();TOT=ROWS.reduce((s,r)=>s+r[C.n],0);
