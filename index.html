@@ -173,6 +173,26 @@ tr.tot td.dn{color:#4C1D95}
 /* activity log */
 .actsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:10px}
 .actsum div{background:#F4F5FA;border-radius:10px;padding:8px 10px;font-size:11px;color:var(--mut)}.actsum b{display:block;font-size:18px;color:var(--ink)}
+/* restricted users */
+.nodrill .dn,.nodrill td.dn,.nodrill .hb .n{cursor:default;color:inherit;text-decoration:none}
+.nodrill .kpi,.nodrill .col,.nodrill .hb{cursor:default}.nodrill .kpi .v{text-decoration:none}
+.nodl .csv,.nodl #dmCsv{display:none}
+.kpi .s .warn{display:block;margin-top:3px;background:rgba(0,0,0,.18);border-radius:6px;padding:2px 6px;font-weight:700}
+/* authorized users page */
+.uform{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;background:#F8F9FC;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+.uform h4{grid-column:1/-1;margin:0;font-size:13px}
+.uform label{display:flex;flex-direction:column;gap:4px;font-size:10.5px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.uform input,.uform select{height:32px;border:1px solid var(--line);border-radius:8px;padding:0 9px;font-size:12.5px;background:#fff;color:var(--ink)}
+.uareas{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px 14px}
+.uareas b{width:100%;font-size:10.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.uareas label{flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0}
+.uareas input{height:auto;accent-color:#7C3AED}
+.ucode{grid-column:1/-1;display:flex;gap:8px;align-items:stretch}
+.ucode code{flex:1;background:#1E2235;color:#E0E7FF;border-radius:8px;padding:9px 10px;font-size:11.5px;white-space:pre-wrap;word-break:break-all}
+.ucode button{background:linear-gradient(135deg,#6366F1,#8B5CF6);color:#fff;border:0;border-radius:8px;padding:0 14px;font-weight:800;cursor:pointer}
+.uhelp{grid-column:1/-1;font-size:12px;color:#374151;line-height:1.6}
+.tagr{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;background:#EDE9FE;color:#5B21B6}
+.tagr.u{background:#E0F2FE;color:#075985}
 .mono{font-family:Consolas,'SF Mono',ui-monospace,monospace;font-size:11px}
 </style>
 </head>
@@ -181,7 +201,7 @@ tr.tot td.dn{color:#4C1D95}
 <div id="login"><form class="lgc" id="lgForm">
   <div class="ic">B2B</div>
   <h1>B2B Pendency Overview</h1>
-  <p>Sign in with your Shadowfax account to see the dashboard.</p>
+  <p>Sign in with the email and password your admin gave you.</p>
   <label>Email<input type="email" id="lgEmail" autocomplete="username" placeholder="name@shadowfax.in" required></label>
   <label>Password<input type="password" id="lgPass" autocomplete="current-password" required></label>
   <button type="submit" id="lgBtn">Sign in</button>
@@ -210,6 +230,7 @@ tr.tot td.dn{color:#4C1D95}
       <span class="pill" id="pRef"></span>
       <span class="pill" id="pShare" style="display:none"></span>
       <button class="newf adm" id="newFile">⬆ Upload new file</button>
+      <button class="pill adm" id="usrBtn" style="cursor:pointer">👥 Authorized users</button>
       <button class="pill adm" id="actBtn" style="cursor:pointer">📋 Activity log</button>
       <span class="pill user" id="pUser"></span>
       <button class="out" id="logout">Log out</button>
@@ -223,9 +244,9 @@ tr.tot td.dn{color:#4C1D95}
   </div>
 
   <div class="row r2">
-    <div class="card"><div class="head"><div><h3>Pending packets by ageing</h3><span class="sub">packets in each ageing bucket · click a bar to drill</span></div></div>
+    <div class="card" id="ageCard"><div class="head"><div><h3>Pending packets by ageing</h3><span class="sub">packets in each ageing bucket · click a bar to drill</span></div></div>
       <div id="ageChart"></div></div>
-    <div class="card"><div class="head"><div><h3>Where the packets sit · pipeline stage</h3><span class="sub">Current_Liablity · click a bar to drill · click a name to filter</span></div></div>
+    <div class="card" id="stageCard"><div class="head"><div><h3>Where the packets sit · pipeline stage</h3><span class="sub">Current_Liablity · click a bar to drill · click a name to filter</span></div></div>
       <div id="stageChart"></div></div>
   </div>
 
@@ -246,6 +267,12 @@ tr.tot td.dn{color:#4C1D95}
     <button class="btn" id="amCsv">⬇ CSV</button><button class="btn" id="amX">✕ Close</button></div>
   <div class="mb" id="amB"></div>
 </div></div>
+<div class="mback" id="um"><div class="modal">
+  <div class="mh"><h3>👥 Authorized users · who can sign in and what they can see</h3>
+    <input class="srch" id="umQ" placeholder="search name / email…">
+    <button class="btn" id="umCsv">⬇ CSV</button><button class="btn" id="umX">✕ Close</button></div>
+  <div class="mb" id="umB" style="overflow:auto"></div>
+</div></div>
 <div id="tip"></div>
 
 <script>
@@ -257,7 +284,7 @@ const SHOW=['packet_id','lor_number','Client','Ageing','Current_Liablity','Lr_st
 const KEEP=SHOW.concat(['shipment_code','Consignee Name','received_at_source_dc','EDD_Date','invoice_number','value','weight_in_ton','chargeable_weight','ewb_number','vendor_name','mm_code','manifest_id','status','next_location','Zone','dest_zone','Current_Location_Zone','Airport_Liability_tag','B2B_TAT']);
 const C={lr:0,age:1,stage:2,status:3,mode:4,client:5,lane:6,n:7,ix:8,v:9};
 const num=v=>{if(v==null||v==='')return 0;const x=parseFloat(String(v).replace(/[^0-9.\-]/g,''));return isFinite(x)?x:0};
-const inr=v=>{const a=Math.abs(v);return a>=1e7?'₹'+(v/1e7).toFixed(2)+' Cr':a>=1e5?'₹'+(v/1e5).toFixed(2)+' L':'₹'+Math.round(v).toLocaleString('en-IN')};
+const inr=v=>{const a=Math.abs(v);return a>=1e7?'₹'+(v/1e7).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})+' Cr':a>=1e5?'₹'+(v/1e5).toFixed(2)+' L':'₹'+Math.round(v).toLocaleString('en-IN')};
 const DIMN={lr:'lor_number',age:'Ageing',stage:'Current_Liablity',status:'Lr_status',mode:'mode',client:'Client',lane:'lane'};
 
 const fmt=n=>Number(n).toLocaleString('en-IN');
@@ -415,6 +442,10 @@ function startDash(){
   TB.forEach(t=>{t.view='matrix';t.q='';t.open=new Set();t.sort=null;t.top=t.top0});
   const ref=D.shared?new Date(D.shared.at):new Date();
   $('#pRef').textContent='🔄 Refreshed '+ref.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  $('#ageCard').style.display=can('ageing')?'':'none';$('#stageCard').style.display=can('stage')?'':'none';
+  $('#ageCard').parentNode.style.display=can('ageing')||can('stage')?'':'none';
+  $('#ageCard').parentNode.style.gridTemplateColumns=can('ageing')&&can('stage')?'':'1fr';
+  document.body.classList.toggle('nodrill',!can('drill'));document.body.classList.toggle('nodl',!can('download'));
   buildFilters();shell();render();
   $('#up').style.display='none';$('#dash').style.display='block';scrollTo(0,0);
 }
@@ -472,7 +503,7 @@ function specRows(spec){
   const ks=Object.keys(spec).map(k=>[C[k],Array.isArray(spec[k])?new Set(spec[k]):new Set([spec[k]])]);
   return ROWS.filter(r=>ks.every(([c,s])=>s.has(r[c])));
 }
-document.addEventListener('click',async e=>{const el=e.target.closest('[data-d]');if(!el)return;const d=DR[+el.dataset.d];if(!d)return;
+document.addEventListener('click',async e=>{const el=e.target.closest('[data-d]');if(!el||!can('drill'))return;const d=DR[+el.dataset.d];if(!d)return;
   const rows=specRows(d.spec);
   if(D.shared&&!D.shared.loaded){ /* team data: packet-level details are fetched only on the first drill */
     $('#dmT').textContent=d.title;$('#dmB').innerHTML='<div class="empty">Loading packet details…</div>';$('#dm').classList.add('on');
@@ -489,10 +520,10 @@ function renderKpis(rows,tot){
   const md=by(rows,C.mode),iAir=DIC.mode.indexOf('air'),iSur=DIC.mode.indexOf('surface');
   const air=md.get(iAir)||0,sur=md.get(iSur)||0,nLr=uniq(rows,C.lr);
   /* unique value: each LR's value counted once, however many packets it has */
-  let val=0;if(D.lrVal){const seen=new Set();for(const r of rows){const k=r[C.lr];if(!seen.has(k)){seen.add(k);val+=D.lrVal[k]}}}
+  let val=0,topV=0,topK=-1,nV=0;if(D.lrVal){const seen=new Set();for(const r of rows){const k=r[C.lr];if(!seen.has(k)){seen.add(k);const x=D.lrVal[k];val+=x;if(x>topV){topV=x;topK=k}}}nV=seen.size}
   const K=[
    {l:'Total pending packets',v:fmt(tot),s:`across <b>${fmt(nLr)}</b> LRs`,g:'linear-gradient(135deg,#A855F7,#EC4899)',d:dr('All pending packets',{})},
-   {l:'Total value (unique LRs)',v:D.lrVal?inr(val):'—',s:D.lrVal?`of <b>${fmt(tot)}</b> packets · <b>${fmt(nLr)}</b> LRs`:'no <b>value</b> column in this upload (re-upload to see it)',g:'linear-gradient(135deg,#0EA5E9,#6366F1)',d:dr('All pending packets (value)',{})},
+   ...(can('value')?[{l:'Total value (unique LRs)',v:D.lrVal?inr(val):'—',s:D.lrVal?`of <b>${fmt(tot)}</b> packets · <b>${fmt(nLr)}</b> LRs`+(topV>val*.5&&nV>1?`<span class="warn" title="Check this LR's value in the source file">⚠ 1 LR (${esc(DIC.lr[topK])}) = ${inr(topV)}, ${pct(topV,val)} of this</span>`:''):'no <b>value</b> column in this upload (re-upload to see it)',g:'linear-gradient(135deg,#0EA5E9,#6366F1)',d:dr('All pending packets (value)',{})}]:[]),
    {l:'Unique LRs',v:fmt(nLr),s:`avg <b>${(tot/Math.max(1,nLr)).toFixed(1)}</b> packets per LR`,g:'linear-gradient(135deg,#06B6D4,#3B82F6)',d:dr('All LRs',{},'lr')},
    {l:'Unique clients',v:fmt(uniq(rows,C.client)),s:`<b>${fmt(uniq(rows,C.lane))}</b> lanes in play`,g:'linear-gradient(135deg,#6366F1,#8B5CF6)',d:dr('All pending packets (all clients)',{},'lr')},
    {l:'Aged 21+ days',v:fmt(a21),s:`<b>${pct(a21,tot)}</b> of pending packets`,g:'linear-gradient(135deg,#F43F5E,#FB7185)',d:dr('Packets aged 21+ days',{age:old})},
@@ -530,7 +561,7 @@ const TB=[
  {id:'t5',n:5,title:'Mode',sub:'mode · ageing · Count of packet_id',kind:'mx',k:'mode',label:'Mode',top0:'All'},
  {id:'t6',n:6,title:'LR status',sub:'Lr_status · ageing · Count of packet_id',kind:'mx',k:'status',label:'Lr_status',top0:'All'}];
 function shell(){
-  $('#tables').innerHTML=TB.map(t=>{
+  $('#tables').innerHTML=TB.filter(t=>can(t.id)).map(t=>{
     const tops=t.tops||(t.kind==='mx'?[]:[10,20,50,'All']);
     return `<div class="row"><div class="card" id="${t.id}"><div class="head"><div><h3>${t.n}. ${t.title}</h3><span class="sub">${t.sub}</span></div>
      <div class="tools">
@@ -539,7 +570,7 @@ function shell(){
       ${t.kind!=='lane'?`<div class="seg vw"><button data-v="matrix" class="on">${t.kind==='lr'?'List':'Ageing matrix'}</button><button data-v="list">${t.kind==='lr'?'With ageing columns':'Pivot list'}</button></div>`:''}
       <button class="btn csv">⬇ CSV</button></div></div>
      <div class="tw"></div><div class="foot"></div></div></div>`}).join('');
-  TB.forEach(t=>{const el=$('#'+t.id);
+  TB.forEach(t=>{const el=$('#'+t.id);if(!el)return;
     el.querySelectorAll('.sz button').forEach(b=>b.onclick=()=>{t.top=b.dataset.n==='All'?'All':+b.dataset.n;el.querySelectorAll('.sz button').forEach(x=>x.classList.toggle('on',x===b));renderTable(t)});
     el.querySelectorAll('.vw button').forEach(b=>b.onclick=()=>{t.view=b.dataset.v;el.querySelectorAll('.vw button').forEach(x=>x.classList.toggle('on',x===b));renderTable(t)});
     const s=el.querySelector('.srch');if(s)s.oninput=()=>{t.q=s.value.trim().toUpperCase();renderTable(t)};
@@ -622,6 +653,7 @@ function renderTable(t){
   ft.innerHTML=`<span>Showing ${fmt(rows.length)} of ${fmt(all.length)} ${what} · click any number to see its packets${t.kind==='mx'?' · click a name to filter':''}</span>${t.kind==='mx'&&t.view==='matrix'||t.kind==='lr'&&t.view==='list'?'<span class="legend">fewer <i></i> more packets</span>':''}`;
 }
 function download(name,L){
+  if(!can('download'))return;
   logAct('download',{file:name,rows:L.length-1});
   const q=s=>{s=String(s??'');return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};
   const b=new Blob(['﻿'+L.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'});
@@ -683,7 +715,7 @@ $('#dmV').querySelectorAll('button').forEach(b=>b.onclick=()=>{DM.view=b.dataset
 let dq;$('#dmQ').oninput=e=>{clearTimeout(dq);dq=setTimeout(()=>{DM.q=e.target.value.trim().toUpperCase();drawDrill()},200)};
 $('#dmX').onclick=()=>$('#dm').classList.remove('on');
 $('#dm').onclick=e=>{if(e.target.id==='dm')$('#dm').classList.remove('on')};
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#dm').classList.remove('on');$('#am').classList.remove('on');closeMs()}if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('kpi'))e.target.click()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('#dm').classList.remove('on');$('#am').classList.remove('on');$('#um').classList.remove('on');closeMs()}if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('kpi'))e.target.click()});
 $('#dmCsv').onclick=()=>{
   if(!D.cols)return;
   const idx=drillIdx();const name='drill_'+slug(DM.title)+'.csv';
@@ -701,15 +733,40 @@ const BUCKET='b2b-pendency',TABLE='b2b_pendency_uploads';
 const PART_MAX=40*1024*1024; /* each chunk stays under Supabase's 50 MB file limit */
 const KEEP_UPLOADS=2;        /* latest upload + the one before it; older ones are deleted */
 const SHARE_ON=!!(SUPA_URL&&SUPA_KEY);
-/* only these people can upload files and see the activity log (must match the list in the Supabase SQL) */
-const ADMINS=['gowri.shankar@shadowfax.in'];
+/* ======================= AUTHORIZED USERS =======================
+   Edit this list in GitHub to add or remove people, set passwords and hide parts of the dashboard.
+   One line per person. Easiest: open the dashboard as an admin → 👥 Authorized users → fill the form → Copy line → paste here.
+     'email@shadowfax.in':{hash:'…', name:'Full Name', isAdmin:false, hide:[]},
+   hash: is a scrambled form of the password (the form makes it), so people opening View Source can't read it.
+   You may also write pass:'Password@123' instead of hash:'…', but then anyone can read that password in View Source.
+   isAdmin:true  → can upload the daily file, see the Authorized users list and the Activity log.
+   hide:[...]    → parts this person will NOT see. Use any of these keys:
+     'value'    Total value KPI          'ageing'  Ageing chart        'stage'  Pipeline stage chart
+     't1' LR-wise table   't2' Lane-wise table   't3' Top clients table
+     't4' Pipeline stage table   't5' Mode table   't6' LR status table
+     'drill'    clicking numbers to see the packets    'download'  CSV downloads
+   Example: hide:['value','download']  → sees everything except the value KPI and the CSV buttons.
+   Keep the quotes, colons and commas exactly as below. Login emails are not case-sensitive. */
+const AUTH_USERS={
+  'gowri.shankar@shadowfax.in':{hash:'e7a4f697243de4b05792cd33ad8f38bca8baab92b7e7dd6b95ae335d9a3c593f', name:'Gowri Shankar', isAdmin:true, hide:[]},
+  'abhay.singh7@shadowfax.in':{hash:'ef8d8b8e1bc87cec964bbb803dff07e89e4b3b41799829d0b0d7f8bc3ee464e4', name:'Abhay Singh', isAdmin:true, hide:[]},
+  /* example of a restricted user:
+  'new.person@shadowfax.in':{pass:'Welcome@123', name:'New Person', isAdmin:false, hide:['value','download']}, */
+};
+const AREAS=[{k:'value',l:'Total value KPI'},{k:'ageing',l:'Ageing chart'},{k:'stage',l:'Pipeline stage chart'},
+  {k:'t1',l:'1. LR-wise table'},{k:'t2',l:'2. Lane-wise table'},{k:'t3',l:'3. Top clients table'},{k:'t4',l:'4. Pipeline stage table'},{k:'t5',l:'5. Mode table'},{k:'t6',l:'6. LR status table'},
+  {k:'drill',l:'Click numbers to see packets'},{k:'download',l:'CSV downloads'}];
+const AUTH=Object.fromEntries(Object.entries(AUTH_USERS).map(([k,v])=>[k.trim().toLowerCase(),v]));
+const SESSION_KEY='b2b-pendency-user';
+let HIDE=new Set();
+const can=k=>!HIDE.has(k);
 const ACT_TABLE='b2b_pendency_activity';
 let USER=null,IS_ADMIN=false,USER_NAME='';
 let SB=null;
 async function supa(){
   if(SB)return SB;
   if(!window.supabase)await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js','Could not load the Supabase library (check the internet connection).');
-  SB=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:'b2b-pendency-auth'}});
+  SB=window.supabase.createClient(SUPA_URL,SUPA_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
   return SB;
 }
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -803,32 +860,32 @@ async function loadDetails(){
   my.cols=cols;my.shared.loaded=true;
 }
 /* ======================= sign-in, roles, activity log ======================= */
-const nameOf=u=>{const m=u.user_metadata||{};if(m.full_name||m.name)return m.full_name||m.name;
-  return (u.email||'').split('@')[0].replace(/[0-9]+/g,'').split(/[._-]+/).filter(Boolean).map(w=>w[0].toUpperCase()+w.slice(1)).join(' ')||u.email};
 function logAct(action,detail){
   if(!USER||!SB)return;
   SB.from(ACT_TABLE).insert({email:USER.email,user_name:USER_NAME,action,detail:detail||{}}).then(({error})=>{if(error)console.warn('activity log',error.message)},()=>{});
 }
 function showOnly(id){['login','up','dash'].forEach(x=>$('#'+x).style.display=x===id?(x==='dash'?'block':'flex'):'none')}
+const lsGet=k=>{try{return localStorage.getItem(k)}catch(_){return null}};
+const lsSet=(k,v)=>{try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v)}catch(_){}};
 $('#lgForm').onsubmit=async e=>{
-  e.preventDefault();const err=$('#lgErr'),btn=$('#lgBtn');err.style.display='none';btn.disabled=true;btn.textContent='Signing in…';
-  try{
-    const c=await supa();
-    const {data,error}=await c.auth.signInWithPassword({email:$('#lgEmail').value.trim().toLowerCase(),password:$('#lgPass').value});
-    if(error)throw error;
-    await enter(data.user,'login');
-  }catch(x){err.textContent=/invalid/i.test(x.message||'')?'Wrong email or password.':(x.message||String(x));err.style.display='block'}
-  finally{btn.disabled=false;btn.textContent='Sign in'}
+  e.preventDefault();const err=$('#lgErr'),btn=$('#lgBtn');err.style.display='none';
+  const email=$('#lgEmail').value.trim().toLowerCase(),pass=$('#lgPass').value,u=AUTH[email];
+  if(!u||!(u.hash?(await hashPw(pass))===u.hash:u.pass===pass)){err.textContent='Wrong email or password. Ask your admin if you need access.';err.style.display='block';return}
+  btn.disabled=true;btn.textContent='Signing in…';
+  /* remember the login on this browser, with a fingerprint of the password so a password change logs people out */
+  lsSet(SESSION_KEY,JSON.stringify({e:email,h:await fp(u.hash||u.pass)}));
+  try{await enter(email,'login')}finally{btn.disabled=false;btn.textContent='Sign in'}
 };
-$('#logout').onclick=async()=>{
-  try{logAct('logout');await sleep(300);await SB.auth.signOut()}catch(_){}
-  location.reload();
-};
-async function enter(user,how){
-  USER=user;USER_NAME=nameOf(user);IS_ADMIN=ADMINS.includes((user.email||'').toLowerCase());
-  $('#pUser').innerHTML=`<span class="av">${esc(USER_NAME.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase())}</span>${esc(USER_NAME)}`;
-  $('#pUser').title=user.email;
+async function hashPw(p){const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('b2b-pendency|'+p));return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}
+async function fp(s){try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('b2b|'+s));return [...new Uint8Array(b)].slice(0,8).map(x=>x.toString(16).padStart(2,'0')).join('')}catch(_){return String(s.length)}}
+$('#logout').onclick=async()=>{logAct('logout');lsSet(SESSION_KEY,null);await sleep(300);location.reload()};
+async function enter(email,how){
+  const u=AUTH[email];
+  USER={email};USER_NAME=u.name||email;IS_ADMIN=!!u.isAdmin;HIDE=new Set(IS_ADMIN?[]:(u.hide||[]));
+  $('#pUser').innerHTML=`<span class="av">${esc(USER_NAME.split(/\s+/).map(w=>w[0]||'').join('').slice(0,2).toUpperCase())}</span>${esc(USER_NAME)}`;
+  $('#pUser').title=email;
   document.querySelectorAll('.adm').forEach(el=>el.style.display=IS_ADMIN?'inline-block':'none');
+  try{await supa()}catch(x){showOnly('up');upErr(esc(x.message||x));return}
   logAct(how);
   if(IS_ADMIN){
     $('#upNote').innerHTML='After loading, the dashboard is <b>shared with your team</b>: everyone who signs in sees the latest upload.';
@@ -852,13 +909,51 @@ async function enter(user,how){
 }
 (async()=>{
   if(!SHARE_ON){showOnly('up');return}
-  try{
-    const c=await supa();
-    const {data}=await c.auth.getSession();
-    if(data&&data.session)await enter(data.session.user,'open');
-    else{showOnly('login');$('#lgEmail').focus()}
-  }catch(x){console.error(x);showOnly('login');$('#lgErr').textContent='Could not reach the sign-in service: '+(x.message||x);$('#lgErr').style.display='block'}
+  let s=null;try{s=JSON.parse(lsGet(SESSION_KEY)||'null')}catch(_){}
+  if(s&&AUTH[s.e]&&s.h===await fp(AUTH[s.e].hash||AUTH[s.e].pass))await enter(s.e,'open');
+  else{lsSet(SESSION_KEY,null);showOnly('login');$('#lgEmail').focus()}
 })();
+
+/* ---------- authorized users page (admins) ---------- */
+const UM={q:''};
+$('#usrBtn').onclick=async()=>{
+  if(!IS_ADMIN)return;$('#um').classList.add('on');UM.last=null;drawUsers();
+  /* last login per person, from the activity log */
+  try{const {data}=await SB.from(ACT_TABLE).select('email,created_at,action').in('action',['login','open']).order('created_at',{ascending:false}).limit(5000);
+    UM.last=new Map();(data||[]).forEach(r=>{if(!UM.last.has(r.email))UM.last.set(r.email,r.created_at)});drawUsers()}catch(_){}
+};
+function userList(){return Object.entries(AUTH).map(([e,u])=>({e,n:u.name||e,a:!!u.isAdmin,h:u.isAdmin?[]:(u.hide||[])}))
+  .filter(o=>!UM.q||(o.e+' '+o.n).toUpperCase().includes(UM.q)).sort((x,y)=>(y.a-x.a)||x.n.localeCompare(y.n))}
+function drawUsers(){
+  const L=userList(),sees=o=>o.a?'Everything + upload, users, activity log':!o.h.length?'Everything':'All except: '+o.h.map(k=>(AREAS.find(a=>a.k===k)||{l:k}).l).join(', ');
+  let h=`<div class="uform"><h4>➕ Add or change a user</h4>
+    <div class="uhelp">Fill this in, press <b>Copy line</b>, then in GitHub open <b>index.html</b> → ✏️ edit → search <code>const AUTH_USERS</code> → paste the line inside the list (to change someone, replace their line) → <b>Commit changes</b>. The new login works about a minute later.</div>
+    <label>Name<input id="uN" placeholder="Full name"></label>
+    <label>Email (login)<input id="uE" placeholder="name@shadowfax.in"></label>
+    <label>Password<input id="uP" placeholder="e.g. Welcome@123"></label>
+    <label>Role<select id="uR"><option value="0">User</option><option value="1">Admin (can upload)</option></select></label>
+    <div class="uareas" id="uA"><b>Can see (untick to hide)</b>${AREAS.map(a=>`<label><input type="checkbox" value="${a.k}" checked>${a.l}</label>`).join('')}</div>
+    <div class="ucode"><code id="uC"></code><button id="uCopy">Copy line</button></div></div>`;
+  h+=`<div class="tw"><table><thead><tr><th>#</th><th>Name</th><th>Login email</th><th>Role</th><th>Can see</th><th>Last login</th></tr></thead><tbody>${
+    L.map((o,i)=>`<tr><td>${i+1}</td><td class="k">${esc(o.n)}</td><td class="mono">${esc(o.e)}</td><td><span class="tagr${o.a?'':' u'}">${o.a?'Admin':'User'}</span></td><td style="white-space:normal;min-width:220px">${esc(sees(o))}</td><td>${UM.last?(UM.last.get(o.e)?actTime(UM.last.get(o.e)):'never'):'…'}</td></tr>`).join('')
+    ||'<tr><td colspan="6" class="empty">Nobody matches.</td></tr>'}</tbody></table></div>
+    <div class="foot"><span>${fmt(Object.keys(AUTH).length)} users · passwords are stored scrambled in index.html, so note each one down when you create it</span></div>`;
+  const keep=$('#umB').querySelector('#uN')?['uN','uE','uP','uR'].map(id=>$('#'+id).value):null;
+  const keepA=keep?[...$('#uA').querySelectorAll('input')].map(x=>x.checked):null;
+  $('#umB').innerHTML=h;
+  if(keep){['uN','uE','uP','uR'].forEach((id,i)=>$('#'+id).value=keep[i]);$('#uA').querySelectorAll('input').forEach((x,i)=>x.checked=keepA[i])}
+  const q=v=>"'"+String(v).replace(/\\/g,'\\\\').replace(/'/g,"\\'")+"'";
+  const line=async()=>{const ad=$('#uR').value==='1',hide=ad?[]:[...$('#uA').querySelectorAll('input')].filter(x=>!x.checked).map(x=>x.value);
+    $('#uA').style.opacity=ad?.4:1;
+    const pw=$('#uP').value;
+    $('#uC').textContent=`  ${q(($('#uE').value||'name@shadowfax.in').trim().toLowerCase())}:{hash:${q(pw?await hashPw(pw):'type a password first')}, name:${q($('#uN').value||'Full Name')}, isAdmin:${ad}, hide:[${hide.map(q).join(',')}]},`};
+  $('#umB').querySelectorAll('.uform input,.uform select').forEach(x=>{x.oninput=line;x.onchange=line});line();
+  $('#uCopy').onclick=async()=>{try{await navigator.clipboard.writeText($('#uC').textContent);$('#uCopy').textContent='Copied ✓'}catch(_){const r=document.createRange();r.selectNodeContents($('#uC'));getSelection().removeAllRanges();getSelection().addRange(r);$('#uCopy').textContent='Press Ctrl+C'}setTimeout(()=>$('#uCopy').textContent='Copy line',2000)};
+}
+$('#umQ').oninput=e=>{UM.q=e.target.value.trim().toUpperCase();drawUsers()};
+$('#umX').onclick=()=>$('#um').classList.remove('on');
+$('#um').onclick=e=>{if(e.target.id==='um')$('#um').classList.remove('on')};
+$('#umCsv').onclick=()=>download('b2b_pendency_users.csv',[['name','email','role','hidden areas'],...userList().map(o=>[o.n,o.e,o.a?'Admin':'User',o.h.join(' ')])]);
 
 /* ---------- activity log viewer (admins) ---------- */
 const AM={rows:[],view:'all',q:''};
@@ -891,7 +986,7 @@ $('#amCsv').onclick=()=>download('b2b_pendency_activity_log.csv',[['time','user'
 
 function render(){
   DR=[];ROWS=filtered();TOT=ROWS.reduce((s,r)=>s+r[C.n],0);
-  renderKpis(ROWS,TOT);renderAge(ROWS,TOT);renderStage(ROWS,TOT);TB.forEach(renderTable);
+  renderKpis(ROWS,TOT);renderAge(ROWS,TOT);renderStage(ROWS,TOT);TB.forEach(t=>{if(can(t.id))renderTable(t)});
 }
 </script>
 </body>
