@@ -291,16 +291,17 @@ function Builder(header){
   const maps={lr:new Map(),age:new Map(),stage:new Map(),status:new Map(),mode:new Map(),client:new Map(),lane:new Map()};
   const code=(k,v)=>{let m=maps[k],c=m.get(v);if(c===undefined){c=m.size;m.set(v,c)}return c};
   const groups=new Map();const cols={};keep.forEach(([n])=>cols[n]=[]);
+  const lrv=new Map(); /* value is repeated on every packet row of an LR: keep it once per LR */
   let N=0,asof=0;const lu=find('lor_last_updated'),vp=find('value');
   return {
     count(){return N},
     add(r){
       const g=k=>{const v=r[pos[k]];return v==null||v===''?'(blank)':String(v).trim()};
-      const lrv=g('lr');if(lrv==='(blank)'&&r.every(x=>x==null||x===''))return; /* skip empty lines */
+      const lrv_=g('lr');if(lrv_==='(blank)'&&r.every(x=>x==null||x===''))return; /* skip empty lines */
       const lane=g('origin')+' → '+g('dest');
-      const c=[code('lr',lrv),code('age',g('age')),code('stage',g('stage')),code('status',g('status')),code('mode',g('mode')),code('client',g('client')),code('lane',lane)];
+      const c=[code('lr',lrv_),code('age',g('age')),code('stage',g('stage')),code('status',g('status')),code('mode',g('mode')),code('client',g('client')),code('lane',lane)];
       const key=c.join('|');let gr=groups.get(key);if(!gr){gr=[...c,0,[],0];groups.set(key,gr)}
-      gr[C.n]++;gr[C.ix].push(N);if(vp>=0)gr[C.v]+=num(r[vp]);
+      gr[C.n]++;gr[C.ix].push(N);if(vp>=0){const x=num(r[vp]);gr[C.v]+=x;if(x>(lrv.get(lrv_)||0))lrv.set(lrv_,x)}
       for(const [n,i] of keep)cols[n].push(r[i]==null?'':String(r[i]));
       if(lu>=0){const t=parseTs(r[lu]);if(t>asof)asof=t}
       N++;
@@ -315,7 +316,8 @@ function Builder(header){
         dic[k]=vals;const re=new Map(vals.map((v,i)=>[maps[k].get(v),i]));
         const ci=C[k];for(const gr of groups.values())gr[ci]=re.get(gr[ci]);
       }
-      return {dic,groups:[...groups.values()],cols,keep:keep.map(x=>x[0]),N,asof,file,hasValue:vp>=0};
+      const lrVal=vp>=0?dic.lr.map(k=>lrv.get(k)||0):null;
+      return {dic,groups:[...groups.values()],cols,keep:keep.map(x=>x[0]),N,asof,file,hasValue:vp>=0,lrVal};
     }
   };
 }
@@ -486,10 +488,11 @@ function renderKpis(rows,tot){
   const a120=rows.filter(r=>r[C.age]===i120).reduce((s,r)=>s+r[C.n],0);
   const md=by(rows,C.mode),iAir=DIC.mode.indexOf('air'),iSur=DIC.mode.indexOf('surface');
   const air=md.get(iAir)||0,sur=md.get(iSur)||0,nLr=uniq(rows,C.lr);
-  const val=rows.reduce((s,r)=>s+(r[C.v]||0),0);
+  /* unique value: each LR's value counted once, however many packets it has */
+  let val=0;if(D.lrVal){const seen=new Set();for(const r of rows){const k=r[C.lr];if(!seen.has(k)){seen.add(k);val+=D.lrVal[k]}}}
   const K=[
    {l:'Total pending packets',v:fmt(tot),s:`across <b>${fmt(nLr)}</b> LRs`,g:'linear-gradient(135deg,#A855F7,#EC4899)',d:dr('All pending packets',{})},
-   {l:'Total value',v:D.hasValue?inr(val):'—',s:D.hasValue?`of <b>${fmt(tot)}</b> packets · <b>${fmt(nLr)}</b> LRs`:'no <b>value</b> column in this upload',g:'linear-gradient(135deg,#0EA5E9,#6366F1)',d:dr('All pending packets (value)',{})},
+   {l:'Total value (unique LRs)',v:D.lrVal?inr(val):'—',s:D.lrVal?`of <b>${fmt(tot)}</b> packets · <b>${fmt(nLr)}</b> LRs`:'no <b>value</b> column in this upload (re-upload to see it)',g:'linear-gradient(135deg,#0EA5E9,#6366F1)',d:dr('All pending packets (value)',{})},
    {l:'Unique LRs',v:fmt(nLr),s:`avg <b>${(tot/Math.max(1,nLr)).toFixed(1)}</b> packets per LR`,g:'linear-gradient(135deg,#06B6D4,#3B82F6)',d:dr('All LRs',{},'lr')},
    {l:'Unique clients',v:fmt(uniq(rows,C.client)),s:`<b>${fmt(uniq(rows,C.lane))}</b> lanes in play`,g:'linear-gradient(135deg,#6366F1,#8B5CF6)',d:dr('All pending packets (all clients)',{},'lr')},
    {l:'Aged 21+ days',v:fmt(a21),s:`<b>${pct(a21,tot)}</b> of pending packets`,g:'linear-gradient(135deg,#F43F5E,#FB7185)',d:dr('Packets aged 21+ days',{age:old})},
@@ -734,7 +737,7 @@ async function shareDataset(){
     share('busy','⏳ Preparing data for your team…');
     const c=await supa();
     const parts=[];
-    parts.push({kind:'meta',s:0,e:1,blob:await gz({v:2,dic:my.dic,keep:my.keep,N:my.N,asof:my.asof,file:my.file,hasValue:!!my.hasValue})});
+    parts.push({kind:'meta',s:0,e:1,blob:await gz({v:2,dic:my.dic,keep:my.keep,N:my.N,asof:my.asof,file:my.file,hasValue:!!my.hasValue,lrVal:my.lrVal||null})});
     await pushParts(parts,{kind:'groups'},(s,e)=>my.groups.slice(s,e).map(g=>[...g.slice(0,C.n+1),Math.round((g[C.v]||0)*100)/100]),0,my.groups.length);
     const rg=new Int32Array(my.N);my.groups.forEach((g,gi)=>{for(const i of g[C.ix])rg[i]=gi});
     await pushParts(parts,{kind:'rg'},(s,e)=>Array.from(rg.subarray(s,e)),0,my.N);
@@ -786,7 +789,7 @@ async function loadShared(){
   let meta;const gp=[];
   core.forEach((p,k)=>{if(p.kind==='meta')meta=got[k];else gp.push([p.s,got[k]])});
   const groups=[];gp.sort((a,b)=>a[0]-b[0]).forEach(([,arr])=>arr.forEach(g=>{const v=g.length>C.n+1?g[C.n+1]:0;g.length=C.n+1;g.push([],v);groups.push(g)}));
-  return {dic:meta.dic,keep:meta.keep,N:meta.N,asof:meta.asof,file:meta.file,hasValue:!!meta.hasValue,groups,cols:null,shared:{at:u.created_at,parts:u.parts,loaded:false}};
+  return {dic:meta.dic,keep:meta.keep,N:meta.N,asof:meta.asof,file:meta.file,hasValue:!!meta.hasValue,lrVal:meta.lrVal||null,groups,cols:null,shared:{at:u.created_at,parts:u.parts,loaded:false}};
 }
 let detailsP=null;
 function ensureDetails(){if(!detailsP)detailsP=loadDetails().catch(e=>{detailsP=null;throw e});return detailsP}
